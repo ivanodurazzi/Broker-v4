@@ -9,7 +9,7 @@ import feedparser
 import os
 
 # --- CONFIGURAZIONE - METTI QUI I TUOI DATI ---
-TELEGRAM_TOKEN = "INCOLLA_QUI_IL_TUO_NUOVO_TOKEN"
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = "888137717"
 # ------------------------------------------------
 
