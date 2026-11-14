@@ -1,71 +1,69 @@
-# BROKER V4 DEFINITIVA - IVO
-# Capitale 1000€ - Stop giornaliero 30€ - Stop per trade 10€
-# Bot: @IvoRaptor_bot - ID: 888137717
+import requests, feedparser, time, datetime, os
 
-import requests
-import time
-import datetime
-import feedparser
-import os
-
-# --- CONFIGURAZIONE - METTI QUI I TUOI DATI ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = "888137717"
-# ------------------------------------------------
-
-CAPITALE_INIZIALE = 1000.0
+CHAT_ID = "7730328507"
 capitale = 1000.0
 perdita_oggi = 0.0
 profitto_oggi = 0.0
 operazioni_oggi = 0
-MAX_PERDITA_GIORNO = 30.0
-MAX_PERDITA_TRADE = 10.0
-MAX_OPERAZIONI_GIORNO = 3
-OBIETTIVO_GIORNO = 30.0
-attivo = True
 ultimo_giorno = ""
+attivo = True
+pausa_fino = None
+ultimo_stop = 0
 
-def invia_telegram(messaggio):
+FONTI = [
+    "https://www.federalreserve.gov/feeds/press_all.xml",
+    "https://www.ecb.europa.eu/rss/press.html",
+    "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=0000320193&type=8-K&dateb=&owner=include&count=10&output=atom",
+    "https://www.reuters.com/rssFeed/businessNews",
+    "https://www.bloomberg.com/feeds/podcasts/etf-report.xml",
+    "https://www.ft.com/?format=rss",
+    "https://www.wsj.com/xml/rss/3_7014.xml",
+]
+
+def invia_telegram(testo):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {"chat_id": CHAT_ID, "text": messaggio}
     try:
-        requests.post(url, data=data, timeout=10)
+        requests.post(url, data={"chat_id": CHAT_ID, "text": testo}, timeout=10)
     except:
         pass
 
-def controlla_news_ufficiali():
-    # Fonti UFFICIALI: Fed, BCE, Reuters, Bloomberg, AP, FT, WSJ
-    feeds = [
-        "https://www.federalreserve.gov/feeds/press_all.xml",
-        "https://www.ecb.europa.eu/rss/press.xml",
-        "https://feeds.reuters.com/reuters/businessNews",
-        "https://feeds.bloomberg.com/markets/news.rss",
-        "https://www.ft.com/rss/home",
-    ]
+def controlla_notizie():
     notizie_importanti = []
-    parole_chiave = ["fed", "federal reserve", "bce", "ecb", "tassi", "rates", "inflazione", "inflation", "sec", "casa bianca", "white house", "recessione", "recession"]
-    for feed_url in feeds:
+    for fonte in FONTI:
         try:
-            feed = feedparser.parse(feed_url)
-            for entry in feed.entries[:5]:
+            feed = feedparser.parse(fonte)
+            for entry in feed.entries[:3]:
                 titolo = entry.title.lower()
-                for parola in parole_chiave:
-                    if parola in titolo:
-                        notizie_importanti.append(entry.title)
-                        break
+                if any(parola in titolo for parola in ["fed", "federal reserve", "bce", "ecb", "sec", "tasso", "rate", "inflazione", "inflation", "recessione", "recession", "crisi", "crisis", "war", "guerra", "bank", "banca"]):
+                    notizie_importanti.append(entry.title)
         except:
             pass
+        time.sleep(1)
     return notizie_importanti
+
+offset_file = "offset.txt"
+def leggi_offset():
+    try:
+        with open(offset_file, "r") as f:
+            return int(f.read().strip())
+    except:
+        return 0
+def salva_offset(valore):
+    with open(offset_file, "w") as f:
+        f.write(str(valore))
 
 def controlla_comandi():
     global attivo
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates"
+    offset = leggi_offset()
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset={offset}&timeout=5"
     try:
         r = requests.get(url, timeout=10).json()
         if "result" in r:
-            for update in r["result"][-3:]:
+            for update in r["result"]:
+                salva_offset(update["update_id"] + 1)
                 if "message" in update and "text" in update["message"]:
-                    testo = update["message"]["text"].lower()
+                    testo = update["message"]["text"].lower().replace(" ", "").strip()
                     if testo == "/stop":
                         attivo = False
                         invia_telegram("👔 BROKER: STOP ricevuto. Mi fermo subito. Per ripartire scrivi /start")
@@ -85,42 +83,22 @@ def reset_giornaliero():
         perdita_oggi = 0.0
         profitto_oggi = 0.0
         operazioni_oggi = 0
-        invia_telegram(f"👔 BROKER 8:00: Buongiorno Ivo. Parto con {capitale:.2f}€. Stop giornaliero 30€. Oggi controllo solo Fed, BCE, SEC, Reuters, Bloomberg, FT, WSJ. Se le notizie non sono sicure, non opero.")
+        return True
+    return False
 
-# --- LOOP PRINCIPALE 24h/24h ---
-invia_telegram("👔 BROKER: V4 DEFINITIVA ATTIVA. Collegato a @IvoRaptor_bot. Capitale 1000€. Protezione 30€/giorno attiva. Ti scrivo solo se c'è qualcosa di importante.")
-reset_giornaliero()
-
-while True:
-    controlla_comandi()
-    reset_giornaliero()
-
-    if not attivo:
-        time.sleep(60)
-        continue
-
-    # Controllo stop giornaliero
-    if perdita_oggi >= MAX_PERDITA_GIORNO:
-        invia_telegram(f"👔 BROKER: STOP - Ho perso 30€ oggi. Mi fermo per proteggerti. Totale {capitale:.2f}€. Domani riprovo.")
-        attivo = False
-        time.sleep(3600)
-        continue
-
-    if profitto_oggi >= OBIETTIVO_GIORNO:
-        invia_telegram(f"👔 BROKER: Obiettivo raggiunto +30€ oggi! Mi fermo e tengo il profitto. Totale {capitale:.2f}€.")
-        attivo = False
-        time.sleep(3600)
-        continue
-
-    if operazioni_oggi < MAX_OPERAZIONI_GIORNO:
-        notizie = controlla_news_ufficiali()
-        if len(notizie) >= 2:
-            # Doppia verifica: servono almeno 2 fonti che dicono la stessa cosa
-            invia_telegram(f"👔 BROKER: STOP - Notizia importante da 2 fonti ufficiali: {notizie[0]}. Resto fermo 30 min per proteggerti.")
-            time.sleep(1800)
-        else:
-            # Qui andrebbe la logica di trading reale
-            # Per ora in modalità SICURA: osserva e non opera senza conferma
-            pass
-
-    time.sleep(120) # Controlla ogni 2 minuti
+if __name__ == "__main__":
+    invia_telegram("👔 BROKER: V4.1 DEFINITIVA ATTIVA. Collegato a @IvoRaptor_bot. Capitale 1000€. Protezione 30€/giorno attiva. Scrivi /stato per controllare.")
+    while True:
+        try:
+            if reset_giornaliero():
+                invia_telegram("👔 BROKER 8:00: Buongiorno Ivo. Parto con 1000.00€. Stop giornaliero 30€. Oggi controllo solo Fed, BCE, SEC, Reuters, Bloomberg, FT, WSJ. Se le notizie non sono sicure, non opero.")
+            controlla_comandi()
+            if attivo:
+                notizie = controlla_notizie()
+                if len(notizie) >= 2:
+                    invia_telegram(f"👔 BROKER: STOP - Notizia importante da {len(notizie)} fonti ufficiali: {notizie[0]}. Resto fermo 30 min per proteggerti.")
+                    time.sleep(1800)
+            time.sleep(60)
+        except Exception as e:
+            print(f"Errore: {e}")
+            time.sleep(60)
